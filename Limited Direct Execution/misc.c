@@ -7,7 +7,6 @@
 #include <string.h>
 
 int main(int argc, char *argv[]){
-  boolean a = 1;
   char *buf = "what";
   write(STDOUT_FILENO, "wait", 1);
   printf("%zu \n", sizeof(double));
