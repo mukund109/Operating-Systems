@@ -16,17 +16,20 @@ void counter_init(counter * c){
 	pthread_mutex_init(c->lock, NULL);
 }
 
-void count_increment(counter *c){
+void global_count_increment(counter *c, int size){
 	pthread_mutex_lock(c->lock);
-	c->count++;
+	c->count += size;
 	pthread_mutex_unlock(c->lock);
 }
 
-counter C;
+counter global_counter;
 
 void* run(void * args){
+	int local_count = 0;
 	for(int i = 0; i<1000000; i++){
-		count_increment(&C);
+		local_count++;
+		if (local_count%1024 == 0)
+			global_count_increment(&global_counter, 1024);
 	}
 	return NULL;
 }
@@ -36,7 +39,7 @@ int main(int argc, char **argv)
 	struct timeval start, end;
 	
 	//initialize counter
-	counter_init(&C);
+	counter_init(&global_counter);
 	
 	assert(argc==2);
 
