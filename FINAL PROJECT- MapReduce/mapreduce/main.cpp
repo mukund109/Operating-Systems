@@ -101,7 +101,7 @@ int main(int argc, char **argv)
 	auto before = c::now();
 	out1 = std::ofstream("1.out");
 	out2 = std::ofstream("2.out");
-	MR_Run(files, map, 4, reduce, 2);
+	MR_Run(files, map, 4, reduce, 4);
 	out1.close();
 	out2.close();
 	auto duration = std::chrono::duration_cast<ms>(c::now() - before);

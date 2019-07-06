@@ -10,7 +10,6 @@ struct arg_t{
 
 void * mapper_thread(void * args){
 	arg_t* params = (arg_t *) args;
-	//std::cout << pthread_self() << " " << params->filename << std::endl;
 
 	auto filename = params->filename;
 	auto map_func = params->map;
@@ -65,13 +64,12 @@ void * reducer_thread(void * args){
 	unsigned int pn = argr->pn;
 	
 	int num_partitions = argr->num_partitions;
-	//std::cout << "pn: " << pn << std::endl;
+
 	//get keys associated with this partition
 	std::unordered_set<std::string> keys;
 	for (auto& t: data){
 			for(auto& k: t.second){
 				if(pf(k.first, num_partitions) == pn){
-					//std::cout << k.first << std::endl;
 					keys.insert(k.first);
 				}
 			}
@@ -106,7 +104,6 @@ void MR_Run(std::vector<std::string>filenames, Mapper map,
 	
 	//Mapper threads 
 	std::vector<pthread_t> threads(num_mappers, pthread_t());
-	//std::cout << "parent thread: " << pthread_self() << std::endl;
 	unsigned int i = 0;
 	for (auto& thread : threads){
 		arg_t * args = new arg_t({map, filenames[i]});
@@ -118,18 +115,7 @@ void MR_Run(std::vector<std::string>filenames, Mapper map,
 		pthread_join(thread, NULL);
 	}
 	
-//	for (auto& t: data){
-//		std::cout << "Thread: " << t.first << std::endl;
-//		for(auto& k: t.second){
-//			std::cout << "Key: " << k.first << ", Values: ";
-//			for(auto& v: k.second)
-//				std::cout << v << " ";
-//			
-//			std::cout << std::endl;
-//		}
-//	}
-	
-	//Reducer threads
+
 	std::vector<pthread_t> rthreads(num_reducers, pthread_t());
 	i = 0;
 	for (auto& thread : rthreads){
