@@ -14,6 +14,7 @@ typedef struct list{
 
 typedef struct HashTable{
 	list* *buckets;
+	
 	unsigned int size;
 } HashTable;
 
@@ -22,6 +23,7 @@ unsigned int hash_fn(int key, unsigned int size){
 	return abs(key) % size;
 }
 
+// returns pointer to node, or NULL if key isn't found
 list * search(list * l, int key){
 	while(l){
 		if(key == l->key)
@@ -31,6 +33,8 @@ list * search(list * l, int key){
 	return NULL;
 }
 
+// if bucket is NULL, then a new one is allocated
+// returns the newly allocated node
 list * insert(int key, char * value, list * bucket){
 
 	// if key already exists, overwrite value
@@ -58,6 +62,7 @@ list * insert(int key, char * value, list * bucket){
 	return child;
 }
 
+// safely deletes list 
 void free_list(list * l){
 	list * temp;
 	while(l){
@@ -100,6 +105,10 @@ void print_list(list* l){
 		l = l->next;
 	}
 }
+
+H
+
+
 
 int main(int argc, char** argv){
 	printf("Test 1, inserting kv pairs\n");
