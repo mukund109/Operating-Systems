@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <pthread.h>
 #include <semaphore.h>
 #include <stdlib.h> // abs
 #include <assert.h>
 #include <string.h> //strdup
+#include "rwlock.h"
 
 typedef struct list{
 	int key;
@@ -12,16 +12,6 @@ typedef struct list{
 	struct list * next;
 } list;
 
-typedef struct HashTable{
-	list* *buckets;
-	
-	unsigned int size;
-} HashTable;
-
-
-unsigned int hash_fn(int key, unsigned int size){
-	return abs(key) % size;
-}
 
 // returns pointer to node, or NULL if key isn't found
 list * search(list * l, int key){
@@ -35,7 +25,7 @@ list * search(list * l, int key){
 
 // if bucket is NULL, then a new one is allocated
 // returns the newly allocated node
-list * insert(int key, char * value, list * bucket){
+list * list_insert(int key, char * value, list * bucket){
 
 	// if key already exists, overwrite value
 	list * node;
@@ -45,7 +35,6 @@ list * insert(int key, char * value, list * bucket){
 		return node;
 	}
 
-	printf("bucket : %p \n ", bucket);
 	// if key doesn't exist, create new node
 	list * parent = NULL;
 	list * child = bucket;
@@ -106,15 +95,72 @@ void print_list(list* l){
 	}
 }
 
-H
+/* Hash Table */
+
+typedef struct HashTable{
+	list* * buckets;	
+	rwlock_t * global_lock;
+	unsigned int capacity;
+} HashTable;
 
 
+unsigned int hash_fn(int key){
+	return abs(key);
+}
+
+HashTable * create_hashtable(unsigned int capacity){
+	HashTable * ret = malloc(sizeof(HashTable));
+	ret->buckets = malloc(capacity*sizeof(list*));
+	ret->capacity = capacity;
+	ret->global_lock = malloc(sizeof(rwlock_t));
+	rwlock_init(ret->global_lock);
+	for(int i = 0; i<capacity; i++){
+		ret->buckets[i] = NULL;
+	}
+	return ret;
+}
+
+void free_table(HashTable * table){
+	for (int i = 0; i<table->capacity; i++){
+		free_list(table->buckets[i]);	
+	}
+	free(table->buckets);
+	rwlock_destroy(table->global_lock);
+	free(table);
+}
+
+void print_table(HashTable * table){
+	for(int i = 0; i<table->capacity; i++){
+		print_list(table->buckets[i]);
+	}
+}
+void insert(HashTable * table, int key, char * value){
+	unsigned int index = hash_fn(key) % table->capacity;
+	rwlock_acquire_writelock(table->global_lock);
+	
+	if (table->buckets[index] == NULL)
+		table->buckets[index] = list_insert(key, value, NULL);
+	else
+		list_insert(key, value, table->buckets[index]);
+	
+	rwlock_release_writelock(table->global_lock);
+}
+
+char * get(HashTable * table, int key){
+	unsigned int index = hash_fn(key) % table->capacity;
+	rwlock_acquire_readlock(table->global_lock);
+	list * node = search(table->buckets[index], key);
+	if(!node) return NULL;
+	char * rv = strdup(node->value);
+	rwlock_release_readlock(table->global_lock);
+	return rv;
+}
 
 int main(int argc, char** argv){
 	printf("Test 1, inserting kv pairs\n");
-	list * a = insert(4, "habersasherie", NULL);
-	insert(6, "joyless", a);
-	insert(34, "kumbaya", a);
+	list * a = list_insert(4, "habersasherie", NULL);
+	list_insert(6, "joyless", a);
+	list_insert(34, "kumbaya", a);
 	printf("head: %p \n", a);
 	print_list(a);
 
@@ -126,7 +172,7 @@ int main(int argc, char** argv){
 		printf("Search result %d : value not found \n", 8);
 	
 	printf("\nTest 3, overwriting key 4\n");
-	insert(4, "badmash", a);
+	list_insert(4, "badmash", a);
 	printf("head: %p \n", a);
 	print_list(a);
 
@@ -136,9 +182,9 @@ int main(int argc, char** argv){
 	print_list(a);
 	
 	printf("\nInserting new elements\n");
-	insert(93, "bruh", a);
+	list_insert(93, "bruh", a);
 	//print_list(a);
-	insert(32, "cable_guy", a);
+	list_insert(32, "cable_guy", a);
 	printf("head: %p \n", a);
 	print_list(a);
 	
@@ -154,7 +200,28 @@ int main(int argc, char** argv){
 	print_list(a);
 	
 	free_list(a);
+	
+	printf("\nTest 7, creating hashtable\n");
+	HashTable * table = create_hashtable(10);
+	printf("created table of capacity %d \n", table->capacity);
+	print_table(table);
 
+	printf("\nTest 8, inserting into table\n");
+	insert(table, -4, "Buoyancy");
+	insert(table, 4, "Concurrency");
+	insert(table, 81, "bittoo");
+	insert(table, 2394, "kawasaki");
+	print_table(table);
+
+	printf("\nTest 9, retrieving from table\n");
+	char * val1 = get(table, 5);
+	char * val2 = get(table, 2394);
+	char * val3 = get(table, 4);
+	printf("5:%s, 2394:%s, 4:%s \n", val1, val2, val3);
+	print_table(table);
+	free(val2); free(val3);
+	
+	free_table(table);
 	return 0;
 }
 

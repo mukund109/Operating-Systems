@@ -1,20 +1,13 @@
+#include "rwlock.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "pthread.h"
 #include <assert.h>
 #include <sys/time.h>
 
 //
 // Your code goes in the structure and functions below
 //
-
-typedef struct __rwlock_t {
-	pthread_mutex_t lock;
-	pthread_cond_t cv;
-	int num_readers;
-	int writing; // 0 or 1
-} rwlock_t;
 
 
 void rwlock_init(rwlock_t *rw) {
@@ -57,6 +50,13 @@ void rwlock_release_writelock(rwlock_t *rw) {
 	pthread_mutex_unlock(&rw->lock);
 }
 
+void rwlock_destroy(rwlock_t *rw){
+	while(pthread_mutex_destroy(&rw->lock)!=0){};
+	while(pthread_cond_destroy(&rw->cv)!=0){};
+	free(rw);
+}
+
+/*
 //
 // Don't change the code below (just use it!)
 // 
@@ -81,6 +81,7 @@ void workload(unsigned int usec){
 		i++;
 	}
 }
+
 
 void *thread(void *arg){
 	// to calculate wait time
@@ -148,4 +149,4 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
-
+*/
