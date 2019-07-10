@@ -9,16 +9,18 @@
 #include "pthread.h"
 #include <time.h>
 #include <assert.h>
+#include "buffer.h"
 
-/* protocol
-	first character : 's'(set) or 'g'(get) or 'd'(delete)
-	followed by integer key
-	if 's', its followed by '\n', further followed by string
+/* protocol: client request
+		first character : 's'(set) or 'g'(get) or 'd'(delete)
+		followed by integer key
+		if 's', its followed by key, further followed by string
+		each request ends with '.'
+
+   protocol: server response
+		first character : '0' or '1' depending on whether request was completed
+		followed by value string in case of get call
 */
-int NUM_DIGITS_IN_KEY = 4;
-int NUM_CHARS_IN_VALUE = 4;
-size_t WRITE_BUFFER_SIZE = 16;
-size_t READ_BUFFER_SIZE = 16;
 
 void error(char *msg)
 {
@@ -27,7 +29,8 @@ void error(char *msg)
 }
 
 void gen_random_command(char * buffer){
-	assert(2+NUM_DIGITS_IN_KEY+NUM_CHARS_IN_VALUE <= WRITE_BUFFER_SIZE);
+	assert(3+NUM_DIGITS_IN_KEY+NUM_CHARS_IN_VALUE <= WRITE_BUFFER_SIZE);
+	bzero(buffer, WRITE_BUFFER_SIZE);
 	int r = rand()%3;
 	int i;
 	for(i = 1; i<NUM_DIGITS_IN_KEY+1; i++) 
@@ -35,7 +38,7 @@ void gen_random_command(char * buffer){
 	
 	if(r == 0){
 		buffer[0] = 's';
-		for(;i<NUM_DIGITS_IN_KEY+NUM_CHARS_IN_VALUE; i++)
+		for(;i<NUM_DIGITS_IN_KEY+NUM_CHARS_IN_VALUE+1; i++)
 			buffer[i] = rand()%2 ? rand()%26+65 : rand()%26+97;
 	}
 	else if(r==1)
@@ -43,7 +46,7 @@ void gen_random_command(char * buffer){
 	else
 		buffer[0] = 'd';
 
-	buffer[i] = '\0';
+	buffer[i] = '.';
 }
 
 struct sockaddr_in serv_addr;
@@ -51,8 +54,6 @@ int sockfd;
 
 void * thread(void* args){
 	char * write_buffer = malloc(WRITE_BUFFER_SIZE);
-	gen_random_command(write_buffer);
-
 	char * read_buffer = malloc(READ_BUFFER_SIZE);
 
 	int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -60,19 +61,25 @@ void * thread(void* args){
         error("ERROR opening socket");
 	if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) 
         error("ERROR connecting");
-
-    printf("message: %s \n", write_buffer);
 	
-	printf("write buffer strlen=%lu \n", strlen(write_buffer));
-    int n = write(sockfd, write_buffer, strlen(write_buffer));
-    if (n < 0) 
-         error("ERROR writing to socket");
+	//TODO: implement time-out
+	for(int j=0; j<20; j++){
+		gen_random_command(write_buffer);
+		printf("message: %s \n", write_buffer);
+	
+		printf("write buffer strlen=%lu \n", strlen(write_buffer));
+		int n = write(sockfd, write_buffer, strlen(write_buffer));
+		if (n < 0) 
+		     error("ERROR writing to socket");
 
-    bzero(read_buffer, READ_BUFFER_SIZE);
-    n = read(sockfd, read_buffer, READ_BUFFER_SIZE-1);
-    if (n < 0) 
-         error("ERROR reading from socket");
-    printf("%s\n", read_buffer);
+		bzero(read_buffer, READ_BUFFER_SIZE);
+		n = read(sockfd, read_buffer, READ_BUFFER_SIZE-1);
+		if (n < 0) 
+		     error("ERROR reading from socket");
+		printf("%s\n", read_buffer);
+		sleep(1);
+	}
+	printf("ending thread \n");
 	free(read_buffer);
 	free(write_buffer);
 	return NULL;

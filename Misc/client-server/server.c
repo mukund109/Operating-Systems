@@ -9,8 +9,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "pthread.h"
-
-int MAX_THREADS = 10;
+#include "buffer.h"
+#include <string.h>
 
 void error(char *msg)
 {
@@ -18,25 +18,56 @@ void error(char *msg)
 	exit(1);
 }
 
+//TODO: remove this
+pthread_mutex_t stdout_lock;
+
 int sockfd;
+
+int process_request(char * request){return 0;}
 
 void * thread(void * args){
 	int fd = (int)args;
+	
+	char buffer[WRITE_BUFFER_SIZE];
+	char request[WRITE_BUFFER_SIZE]; //parsed request
+	bzero(buffer,WRITE_BUFFER_SIZE);
+	bzero(request, WRITE_BUFFER_SIZE);
+	
+	int i = 0, j = 0, n;
+	while(1){
+		i = i%WRITE_BUFFER_SIZE;
 
-	char buffer[256];
-	bzero(buffer,256);
+		if(i==0){
+			bzero(buffer, WRITE_BUFFER_SIZE);
+			n = read(fd,buffer,255);
+			if (n < 0) error("ERROR reading from socket");
+		}
+		
+		if(buffer[i]=='.') {
+			pthread_mutex_lock(&stdout_lock);
+			printf("request: %s, fd: %d \n", request, fd);
+			pthread_mutex_unlock(&stdout_lock);
 
-	int n = read(fd,buffer,255);
-	if (n < 0) error("ERROR reading from socket");
-	printf("Here is the message: %s\n",buffer);
-	n = write(fd, "got message!", 13);
-	if (n < 0) error("ERROR writing to socket");
+			char* response = process_request(request)==0 ? "success: 0\n" : "failure: 1\n";
+			n = write(fd, response, strlen(response));
+			if (n < 0) error("ERROR writing to socket");
+			bzero(request, WRITE_BUFFER_SIZE);
+			j = 0;
+		}
+		else if(buffer[i]!='\0'){request[j] = buffer[i]; j++;}
+		
+		i++;
+	}
 	return NULL;
 }
+
 int main(int argc, char *argv[])
 {
+	//initializing stdout lock
+	pthread_mutex_init(&stdout_lock, NULL);
+
 	// opening socket
-	int newsockfd, portno;//, clilen;
+	int newsockfd, portno;
 	unsigned int clilen;
 	struct sockaddr_in serv_addr, cli_addr;
 	if (argc < 2) {
@@ -61,7 +92,7 @@ int main(int argc, char *argv[])
 
 	clilen = sizeof(cli_addr);
 	char ip[INET_ADDRSTRLEN];
-	pthread_t p[MAX_THREADS];
+	pthread_t p[MAX_SERVER_THREADS];
 	int num_connections = 0;
 	while(1){
 		newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
@@ -77,11 +108,11 @@ int main(int argc, char *argv[])
 		pthread_create(&p[num_connections], NULL, thread, (void *)newsockfd);
 		
 		num_connections++;
-		if(num_connections==MAX_THREADS){
+		if(num_connections==MAX_SERVER_THREADS){
 			printf("Too many connections, closing socket\n");
-			close(sockfd);
-			for(int i =0; i<MAX_THREADS; i++)
+			for(int i =0; i<MAX_SERVER_THREADS; i++)
 				pthread_join(p[i], NULL);
+			close(sockfd);
 			printf("Shutting down server\n");
 			return 0;
 		}
