@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <string.h> //strdup
 #include "rwlock.h"
+#include "hashtable.h"
 
 typedef struct list{
 	int key;
@@ -130,9 +131,11 @@ void free_table(HashTable * table){
 }
 
 void print_table(HashTable * table){
+	rwlock_acquire_readlock(table->global_lock);
 	for(int i = 0; i<table->capacity; i++){
 		print_list(table->buckets[i]);
 	}
+	rwlock_release_readlock(table->global_lock);
 }
 void insert(HashTable * table, int key, char * value){
 	unsigned int index = hash_fn(key) % table->capacity;
@@ -150,13 +153,21 @@ char * get(HashTable * table, int key){
 	unsigned int index = hash_fn(key) % table->capacity;
 	rwlock_acquire_readlock(table->global_lock);
 	list * node = search(table->buckets[index], key);
-	if(!node) return NULL;
+	if(!node) {rwlock_release_readlock(table->global_lock); return NULL;}
 	char * rv = strdup(node->value);
 	rwlock_release_readlock(table->global_lock);
 	return rv;
 }
 
-int main(int argc, char** argv){
+// doesn't raise an error if key doesn't exist
+void delete_entry(HashTable* table, int key){
+	unsigned int index = hash_fn(key) % table->capacity;
+	rwlock_acquire_writelock(table->global_lock);
+	table->buckets[index] = delete_if_exists(table->buckets[index], key);
+	rwlock_release_writelock(table->global_lock);
+}
+
+int run_tests(){
 	printf("Test 1, inserting kv pairs\n");
 	list * a = list_insert(4, "habersasherie", NULL);
 	list_insert(6, "joyless", a);
@@ -219,6 +230,13 @@ int main(int argc, char** argv){
 	char * val3 = get(table, 4);
 	printf("5:%s, 2394:%s, 4:%s \n", val1, val2, val3);
 	print_table(table);
+
+	printf("\nTest 10, deleting from table\n");
+	delete_entry(table, 5);
+	delete_entry(table, -4);
+	delete_entry(table, 81);
+	print_table(table);
+
 	free(val2); free(val3);
 	
 	free_table(table);
