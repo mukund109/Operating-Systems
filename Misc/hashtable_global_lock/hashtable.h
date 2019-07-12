@@ -9,7 +9,6 @@ void free_table(HashTable * table);
 
 void print_table(HashTable * table);
 
-// stores a copy of 'value'
 void insert(HashTable * table, int key, char * value);
 
 // returns a malloced copy of value

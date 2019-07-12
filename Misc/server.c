@@ -12,15 +12,13 @@
 #include "buffer.h"
 #include <string.h>
 #include "hashtable.h"
+#include <sys/resource.h>
 
 void error(char *msg)
 {
 	perror(msg);
 	exit(1);
 }
-
-//TODO: remove this
-pthread_mutex_t stdout_lock;
 
 // listening socket file desc
 int sockfd;
@@ -29,6 +27,7 @@ int sockfd;
 HashTable * table;
 int CAPACITY = 1000;
 
+// performs requested action
 char * process_request(char * request){
 	char * k = strndup(request+1, NUM_DIGITS_IN_KEY);
 	int key = atoi(k);
@@ -48,8 +47,6 @@ char * process_request(char * request){
 	}
 	else response = strdup("1");
 
-	printf("\nTABLE:\n");
-	print_table(table);
 	return response;
 }
 
@@ -58,7 +55,7 @@ char * process_request(char * request){
 void * thread(void * args){
 	int fd = (int)args;
 	
-	char buffer[WRITE_BUFFER_SIZE];
+	char buffer[WRITE_BUFFER_SIZE]; //received bytes
 	char request[WRITE_BUFFER_SIZE]; //parsed request
 	bzero(buffer,WRITE_BUFFER_SIZE);
 	bzero(request, WRITE_BUFFER_SIZE);
@@ -67,19 +64,22 @@ void * thread(void * args){
 	while(1){
 		i = i%WRITE_BUFFER_SIZE;
 
+		//reads buffer
 		if(i==0){
 			bzero(buffer, WRITE_BUFFER_SIZE);
 			n = read(fd,buffer,255);
-			printf("n: %d \n", n);
-			if (n < 0) error("ERROR reading from socket");
-			if (n==0) error("Socket closed");
+			if (n < 0 || n==0){ 
+				printf("Connection closed %d \n", fd);
+				return NULL;
+			}
 		}
 		
+		//parses and processes client request
 		if(buffer[i]=='.') {
 			char * response = process_request(request);
 
 			n = write(fd, response, strlen(response));
-			if (n < 0) error("ERROR writing to socket");
+			if (n < 0 || n==0) error("ERROR writing to socket");
 
 			free(response);
 			bzero(request, WRITE_BUFFER_SIZE);
@@ -94,14 +94,21 @@ void * thread(void * args){
 
 int main(int argc, char *argv[])
 {
-
-	//initializing stdout lock
-	pthread_mutex_init(&stdout_lock, NULL);
+	/*
+	extend soft limit on number of open fds, the default is 1024,
+	this allows more than 1024 threads to receive requests
+	*/
+	struct rlimit lim;
+	getrlimit(RLIMIT_NOFILE, &lim);
+	lim.rlim_cur = (lim.rlim_cur<MAX_SERVER_THREADS) ? MAX_SERVER_THREADS : lim.rlim_cur;
+	if(setrlimit(RLIMIT_NOFILE, &lim)!=0)
+		fprintf(stderr, "couldn't set file descriptor limit\n");
+	
 	
 	// create hashtable
 	table = create_hashtable(CAPACITY);
 
-	// opening socket
+	// opening listening socket
 	int newsockfd, portno;
 	unsigned int clilen;
 	struct sockaddr_in serv_addr, cli_addr;
@@ -127,8 +134,19 @@ int main(int argc, char *argv[])
 
 	clilen = sizeof(cli_addr);
 	char ip[INET_ADDRSTRLEN];
+
+
 	pthread_t p[MAX_SERVER_THREADS];
 	int num_connections = 0;
+
+	/* 
+	This loops accepts incoming connections and passes them on to 
+	worker threads. 
+	
+	It blocks on the 'accept' call unless the limit on the number 
+	of worker threads has been reached, in which caseit waits for 
+	remaining threads to finish.
+	*/
 	while(1){
 		newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen);
 		if (newsockfd < 0) 
@@ -137,7 +155,7 @@ int main(int argc, char *argv[])
 		// getting client IP
 		struct in_addr ipAddr = cli_addr.sin_addr;
 		inet_ntop(AF_INET, &ipAddr, ip, INET_ADDRSTRLEN);
-		printf("Client details: IP address %s, port number %d \n", ip, ntohs(cli_addr.sin_port));
+		printf("Client details: IP address %s, port number %d, fd %d \n", ip, ntohs(cli_addr.sin_port), newsockfd);
 		
 		//spawn new thread to deal with connection
 		pthread_create(&p[num_connections], NULL, thread, (void *)newsockfd);
@@ -151,8 +169,7 @@ int main(int argc, char *argv[])
 			printf("Shutting down server\n");
 			return 0;
 		}
-		// try out pthread_tryjoin_np to get return value from thread
-		
+
 	}
 	
 	free_table(table);

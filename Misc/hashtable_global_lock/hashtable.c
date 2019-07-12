@@ -100,7 +100,7 @@ void print_list(list* l){
 
 typedef struct HashTable{
 	list* * buckets;	
-	rwlock_t ** locks;
+	rwlock_t * global_lock;
 	unsigned int capacity;
 } HashTable;
 
@@ -113,61 +113,58 @@ HashTable * create_hashtable(unsigned int capacity){
 	HashTable * ret = malloc(sizeof(HashTable));
 	ret->buckets = malloc(capacity*sizeof(list*));
 	ret->capacity = capacity;
-	ret->locks = malloc(capacity*sizeof(rwlock_t*));
+	ret->global_lock = malloc(sizeof(rwlock_t));
+	rwlock_init(ret->global_lock);
 	for(int i = 0; i<capacity; i++){
 		ret->buckets[i] = NULL;
-		ret->locks[i] = malloc(sizeof(rwlock_t));
-		rwlock_init(ret->locks[i]);
 	}
 	return ret;
 }
 
 void free_table(HashTable * table){
 	for (int i = 0; i<table->capacity; i++){
-		free_list(table->buckets[i]);
-		rwlock_destroy(table->locks[i]);	
+		free_list(table->buckets[i]);	
 	}
 	free(table->buckets);
-	free(table->locks);
+	rwlock_destroy(table->global_lock);
 	free(table);
 }
 
 void print_table(HashTable * table){
+	rwlock_acquire_readlock(table->global_lock);
 	for(int i = 0; i<table->capacity; i++){
-		rwlock_acquire_readlock(table->locks[i]);
 		print_list(table->buckets[i]);
-		rwlock_release_readlock(table->locks[i]);
 	}
+	rwlock_release_readlock(table->global_lock);
 }
-
 void insert(HashTable * table, int key, char * value){
 	unsigned int index = hash_fn(key) % table->capacity;
-	rwlock_acquire_writelock(table->locks[index]);
+	rwlock_acquire_writelock(table->global_lock);
 	
 	if (table->buckets[index] == NULL)
 		table->buckets[index] = list_insert(key, value, NULL);
 	else
 		list_insert(key, value, table->buckets[index]);
 	
-	rwlock_release_writelock(table->locks[index]);
+	rwlock_release_writelock(table->global_lock);
 }
 
 char * get(HashTable * table, int key){
 	unsigned int index = hash_fn(key) % table->capacity;
-	rwlock_acquire_readlock(table->locks[index]);
+	rwlock_acquire_readlock(table->global_lock);
 	list * node = search(table->buckets[index], key);
-	if(!node) {rwlock_release_readlock(table->locks[index]); return NULL;}
+	if(!node) {rwlock_release_readlock(table->global_lock); return NULL;}
 	char * rv = strdup(node->value);
-	rwlock_release_readlock(table->locks[index]);
+	rwlock_release_readlock(table->global_lock);
 	return rv;
 }
 
 // doesn't raise an error if key doesn't exist
 void delete_entry(HashTable* table, int key){
 	unsigned int index = hash_fn(key) % table->capacity;
-	rwlock_acquire_writelock(table->locks[index]);
+	rwlock_acquire_writelock(table->global_lock);
 	table->buckets[index] = delete_if_exists(table->buckets[index], key);
-	rwlock_release_writelock(table->locks[index]);
+	rwlock_release_writelock(table->global_lock);
 }
 
 int run_tests(){
