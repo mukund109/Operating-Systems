@@ -30,24 +30,32 @@ void error(char *msg)
 }
 
 int total_requests;
+int num_calls;
+float thread_latency_avg;
+
 struct timeval start_r, end_r;
 pthread_mutex_t total_requests_lock;
 FILE *logger;
 
 // increments total request counter and writes to log file
-void increment_total_requests(int num){
+void increment_total_requests(int num, float avg_latency){
 	pthread_mutex_lock(&total_requests_lock);
+
 	total_requests += num;
+	thread_latency_avg += avg_latency;
+	num_calls += 1;
+
 	if(total_requests>100000){
 		gettimeofday(&end_r, NULL); 
 		float time_taken = ((end_r.tv_sec*1e6 + end_r.tv_usec) - (start_r.tv_sec*1e6 + start_r.tv_usec))/1e6;
 
-		fprintf(logger, "%.4f %ld \n", total_requests/time_taken,  end_r.tv_sec);
+		fprintf(logger, "%.4f %ld %.4f \n", total_requests/time_taken,  end_r.tv_sec, thread_latency_avg/num_calls);
 		fflush(logger);
-		printf("throughput (total requests served per sec) : %.4f", total_requests/time_taken);
-		total_requests = 0;
+		printf("throughput (total requests served per sec) : %.4f \n", total_requests/time_taken);
+		total_requests = 0; num_calls = 0; thread_latency_avg = 0;
 		gettimeofday(&start_r, NULL);
 	}	
+
 	pthread_mutex_unlock(&total_requests_lock);
 }
 
@@ -87,9 +95,11 @@ void * thread(void* args){
 	
 	float sum_latency = 0;
 	int update_time_period = 3000;
+	int starting_iter = rand()%update_time_period + 1;
 
 	//TODO: implement time-out
-	for(int j=1; j<REQUESTS_PER_THREAD+1; j++){
+	int i=1;
+	for(int j=starting_iter; j<REQUESTS_PER_THREAD+1; j++){
 		gen_random_command(write_buffer);
 		//printf("message: %s \n", write_buffer);
 	
@@ -109,11 +119,14 @@ void * thread(void* args){
 		float latency = ((end.tv_sec*1e6 + end.tv_usec) - (start.tv_sec*1e6 + start.tv_usec))/1e6;
 		sum_latency += latency;
 		
+		//selection bias, if the thread is too slow, it wont update the global counter
 		if(j%update_time_period == 0){
-			printf("%s, latency: %.6f, avg_latency: %.6f, loop num: %d \n", read_buffer, latency, sum_latency/update_time_period, j);
-			increment_total_requests(update_time_period);
+			printf("latency: %.6f, avg_latency: %.6f, loop num: %d \n", latency, sum_latency/update_time_period, j-starting_iter);
+			increment_total_requests(update_time_period, sum_latency/i);
 			sum_latency = 0;
+			i = 0;
 		}
+		i++;
 
 	}
 	close(sockfd);
@@ -126,19 +139,20 @@ void * thread(void* args){
 
 int main(int argc, char *argv[])
 {
-	// initializing total request counter and clock
+	// initializing total request counter and latency average
     pthread_mutex_init(&total_requests_lock, NULL);
 	total_requests = 0;
+	num_calls = 0;
+	thread_latency_avg = 0;
 
-	//opening logging file
-	logger = fopen("logs", "w+");
-
+	
+	// intitializing server address struct
 	int portno;
 
     struct hostent *server;
 
     srand((unsigned int)time(NULL));
-    if (argc < 3) {
+    if (argc != 4) {
        fprintf(stderr,"usage %s hostname port\n", argv[0]);
        exit(0);
     }
@@ -153,6 +167,19 @@ int main(int argc, char *argv[])
     serv_addr.sin_family = AF_INET;
     bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
+	
+	// create num_p replicas of this process
+	int num_p = atoi(argv[3]);
+	for(int j = 1; j<num_p; j++){
+		if(fork()!=0) break;
+	}
+
+	printf("Spawning process %d \n", getpid());
+	
+	//opening logging file
+	char filename[10];
+	snprintf(filename, 10, "log%d", getpid());
+	logger = fopen(filename, "w+");
 
 	pthread_t p[MAX_SERVER_THREADS];
 	gettimeofday(&start_r, NULL);	
